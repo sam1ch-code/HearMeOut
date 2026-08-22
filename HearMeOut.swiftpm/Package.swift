@@ -32,6 +32,11 @@ let package = Package(
                 .landscapeLeft,
                 .portraitUpsideDown(.when(deviceFamilies: [.pad]))
             ],
+            capabilities: [
+                .camera(purposeString: "Hear Me Out uses the camera to track your eye contact and provide feedback on your visual engagement during speaking practice"),
+                .speechRecognition(purposeString: "Hear Me Out uses speech recognition to convert your spoken words into text and evaluate your pronunciation and speaking accuracy"),
+                .microphone(purposeString: "Hear Me Out uses the microphone to capture your speech and analyze your pronunciation and speaking performance")
+            ],
             appCategory: .entertainment
         )
     ],

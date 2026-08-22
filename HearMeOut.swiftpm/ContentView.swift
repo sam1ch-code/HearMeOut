@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct ContentView: View {
-    @EnvironmentObject private var router: AppRouter
     
     var body: some View {
         ZStack {
@@ -21,9 +20,6 @@ struct ContentView: View {
                     ForEach(modes) { model in
                         HStack(spacing: 24) {
                             ModeTile(mode: model)
-                                .onTapGesture {
-                                    router.navigate(to: .speechCheckExercise)
-                                }
                         }
                     }
                 }

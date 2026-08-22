@@ -6,10 +6,16 @@ import SwiftUI
 struct FrameView: View {
     var image: CGImage?
     private let label = Text("frame")
-    
+
     var body: some View {
         if let image {
-            Image(image, scale: 1.0, orientation: .up, label: label)
+            GeometryReader { geometry in
+                Image(image, scale: 1.0, orientation: .up, label: label)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+            }
         } else {
             Color.black
         }
