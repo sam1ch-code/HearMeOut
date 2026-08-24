@@ -45,7 +45,7 @@ final class FrameHandler: NSObject, ObservableObject, @unchecked Sendable {
     private func setUpCaptureSession() {
         guard permissionGranted else { return }
 
-        captureSession.sessionPreset = .medium // was .high/.photo — plenty for preview + tracking
+        captureSession.sessionPreset = .medium
 
         let videoOutput = AVCaptureVideoDataOutput()
         videoOutput.alwaysDiscardsLateVideoFrames = true
@@ -56,8 +56,6 @@ final class FrameHandler: NSObject, ObservableObject, @unchecked Sendable {
             captureSession.canAddInput(videoDeviceInput)
         else { return }
 
-        // Throttle to ~15fps — cuts the per-frame CIContext render + SwiftUI
-        // update workload roughly in half vs. the camera's native 30fps.
         do {
             try videoDevice.lockForConfiguration()
             videoDevice.activeVideoMinFrameDuration = CMTimeMake(value: 1, timescale: 15)
