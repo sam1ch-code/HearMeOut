@@ -4,7 +4,7 @@ import SwiftUI
 struct MyApp: App {
     var body: some Scene {
         WindowGroup {
-            UIKitApp()
+            CameraViewV1(cameraManager: CameraManager())
                 .ignoresSafeArea()
         }
     }
