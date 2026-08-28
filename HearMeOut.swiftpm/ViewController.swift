@@ -5,7 +5,7 @@ import UIKit
 import AVFoundation
 import SwiftUI
 
-class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
+class ViewController: UIViewController, @MainActor AVCaptureVideoDataOutputSampleBufferDelegate {
     private var permissionGranted = false
 
     private let captureSession = AVCaptureSession()
@@ -17,6 +17,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 
     /// Detector
     private var videoOutput = AVCaptureVideoDataOutput()
+    private let gazeDetector = GazeDetector()
 
     override func viewDidLoad() {
         checkPermission()
@@ -72,6 +73,11 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             guard let self else { return }
             self.view.layer.addSublayer(self.previewLayer)
         }
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        gazeDetector.handle(pixelBuffer)
     }
 }
 
