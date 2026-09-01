@@ -8,10 +8,20 @@ import Vision
 final class GazeDetector {
     private let minFrameInterval: CFTimeInterval = 1.0 / 15.0 // 15 fps
     private var lastProcessedTime: CFTimeInterval = 0
+    
+    /// Called once per processed frame with the latest observation.
+    /// Marked `@MainActor @Sendable` rather than a plain closure type:
+    /// `@MainActor` tells the compiler this closure only ever runs on
+    /// the main actor — which is what makes it safe for the consumer to
+    /// capture `self` from a UIViewController when assigning this.
+    /// `@Sendable` is what allows the closure *value* to be captured
+    /// here and carried across the hop below.
+    var onObservation: (@MainActor @Sendable (GazeObservation) -> Void)?
 
     /// Reused across every frame on purpose
     private let sequenceHandler = VNSequenceRequestHandler()
     private let gazeSmoother = GazeSmoother()
+    private let gazeZoneClassifier = GazeZoneClassifier()
 
     /// Verified against .portrait capture orientation on a front camera.
     /// Re-check this if you ever change videoOrientation on the capture
@@ -83,6 +93,7 @@ private extension GazeDetector {
 
     func reportNoFace() {
         gazeSmoother.reset()
+        emit(.noFace)
     }
 
     private func handleFace(_ face: VNFaceObservation, landMarks: VNFaceLandmarks2D, timestamp: CFTimeInterval) {
@@ -97,6 +108,9 @@ private extension GazeDetector {
         if let rightEye = landMarks.rightEye, let rightPupil = landMarks.rightPupil {
             rightReading = eyeReading(pupil: rightPupil, eyeContour: rightEye, faceBox: faceBox)
         }
+        
+        print("leftEye: \(landMarks.leftEye != nil), leftPupil: \(landMarks.leftPupil != nil)")
+        print("leftReading: \(leftReading?.confidence ?? -1), rightReading: \(rightReading?.confidence ?? -1)")
 
         guard let combinedEyeReading = combine(left: leftReading, right: rightReading) else {
             reportNoFace()
@@ -106,6 +120,23 @@ private extension GazeDetector {
         let pose = headPose(from: face)
         let estimate = gazeEstimate(eyeReading: combinedEyeReading, pose: pose)
         let smoothedEstimate = gazeSmoother.update(with: estimate, at: timestamp)
+        
+        let classification = gazeZoneClassifier.classify(
+            horizontalAngle: smoothedEstimate.horizontalAngle,
+            verticalAngle: smoothedEstimate.verticalAngle,
+            timestamp: timestamp
+        )
+        
+        let reading = GazeReading(
+            gaze: classification.zone,
+            horizontalAngle: smoothedEstimate.horizontalAngle,
+            verticalAngle: smoothedEstimate.verticalAngle,
+            confidence: smoothedEstimate.confidence,
+            timeSinceCentered: classification.timeSinceCentered,
+            timestamp: timestamp
+        )
+        
+        emit(.detected(reading))
     }
 }
 
@@ -160,9 +191,20 @@ private extension GazeDetector {
 
         let eyePoints = imagePoint(from: eyeContour, faceBox: faceBox)
         let pupilPoints = imagePoint(from: pupil, faceBox: faceBox)
+        
+        print("eyePoints.count: \(eyePoints.count), pupilPoints.count: \(pupilPoints.count)")
 
-        guard pupilPoints.isEmpty == false,
-              let (cornerA, cornerB) = corners(of: pupilPoints) else { return nil }
+        guard !pupilPoints.isEmpty else {
+            print("FAILED: pupilPoints empty")
+            return nil
+        }
+        
+        guard let (cornerA, cornerB) = corners(of: eyePoints) else {
+            print("FAILED: corners returned nil")
+            return nil
+        }
+        
+        print("cornerA: \(cornerA), cornerB: \(cornerB)")
 
         let pupilCenter = CGPoint(
             x: pupilPoints.map(\.x).reduce(0, +) / CGFloat(pupilPoints.count),
@@ -179,7 +221,10 @@ private extension GazeDetector {
         let perpendicular = CGPoint(x: -axis.y, y: axis.x) // rotate 90°
 
         let halfAxisLength = sqrt(pow(cornerB.x - cornerA.x, 2) + pow(cornerB.y - cornerA.y, 2)) / 2
-        guard halfAxisLength > 0 else { return nil }
+        guard halfAxisLength > 0 else {
+            print("FAILED: halfAxisLength is 0 — corners are identical or overlapping")
+            return nil
+        }
 
         let offset = CGPoint(
             x: pupilCenter.x - eyeCenter.x,
@@ -299,5 +344,16 @@ private extension GazeDetector {
         )
     }
 }
-//MARK: Stage 6
+
+//MARK: Stage 8
 private extension GazeDetector {
+    func emit(_ observation: GazeObservation) {
+        /// Task { @MainActor in } gives the compiler an actual, provable guarantee that
+        /// this hop lands on the main actor before `callback` runs — unlike DispatchQueue.main.async,
+        /// which is only a runtime convention as far as the type system is concerned.
+        let callback = onObservation
+        Task { @MainActor [weak self] in
+            callback?(observation)
+        }
+    }
+}
