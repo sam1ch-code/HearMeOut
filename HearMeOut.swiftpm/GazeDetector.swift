@@ -53,8 +53,10 @@ final class GazeDetector {
 
 private extension GazeDetector {
     func process(_ pixelBuffer: CVPixelBuffer, timestamp: CFTimeInterval) {
+        let dimensions = effectiveImageDimensions(pixelBuffer: pixelBuffer)
+
         let request = VNDetectFaceLandmarksRequest { [weak self] request, error in
-            self?.handleLandmarksResult(request: request, error: error, timestamp: timestamp)
+            self?.handleLandmarksResult(request: request, error: error, timestamp: timestamp, imageDimensions: dimensions)
         }
 
         do {
@@ -68,49 +70,42 @@ private extension GazeDetector {
         }
     }
 
-    func handleLandmarksResult(request: VNRequest, error: Error?, timestamp: CFTimeInterval) {
+    func handleLandmarksResult(request: VNRequest, error: Error?, timestamp: CFTimeInterval, imageDimensions: (width: CGFloat, height: CGFloat)) {
         guard error == nil, let observations = request.results as? [VNFaceObservation] else {
-            print("Error: \(error.debugDescription)")
             reportNoFace()
             return
         }
-
-        /// Explicit policy: no faces -> report absence; multiple faces -> use the most prominent one.
-        guard let primaryFace = observations.max(by: { lhs, rhs in
-            (lhs.boundingBox.width * lhs.boundingBox.height) < (rhs.boundingBox.width * rhs.boundingBox.height)
+        guard let primaryFace = observations.max(by: {
+            ($0.boundingBox.width * $0.boundingBox.height) < ($1.boundingBox.width * $1.boundingBox.height)
         }) else {
             reportNoFace()
             return
         }
-
         guard let landmarks = primaryFace.landmarks else {
             reportNoFace()
             return
         }
-
-        handleFace(primaryFace, landMarks: landmarks, timestamp: timestamp)
+        handleFace(primaryFace, landMarks: landmarks, timestamp: timestamp, imageDimensions: imageDimensions)
     }
+
 
     func reportNoFace() {
         gazeSmoother.reset()
         emit(.noFace)
     }
 
-    private func handleFace(_ face: VNFaceObservation, landMarks: VNFaceLandmarks2D, timestamp: CFTimeInterval) {
+    func handleFace(_ face: VNFaceObservation, landMarks: VNFaceLandmarks2D, timestamp: CFTimeInterval, imageDimensions: (width: CGFloat, height: CGFloat)) {
         let faceBox = face.boundingBox
+        let aspectCorrection = imageDimensions.height / imageDimensions.width
 
         var leftReading: EyeReading?
         if let leftEye = landMarks.leftEye, let leftPupil = landMarks.leftPupil {
-            leftReading = eyeReading(pupil: leftPupil, eyeContour: leftEye, faceBox: faceBox)
+            leftReading = eyeReading(pupil: leftPupil, eyeContour: leftEye, faceBox: faceBox, aspectCorrection: aspectCorrection)
         }
-
         var rightReading: EyeReading?
         if let rightEye = landMarks.rightEye, let rightPupil = landMarks.rightPupil {
-            rightReading = eyeReading(pupil: rightPupil, eyeContour: rightEye, faceBox: faceBox)
+            rightReading = eyeReading(pupil: rightPupil, eyeContour: rightEye, faceBox: faceBox, aspectCorrection: aspectCorrection)
         }
-        
-        print("leftEye: \(landMarks.leftEye != nil), leftPupil: \(landMarks.leftPupil != nil)")
-        print("leftReading: \(leftReading?.confidence ?? -1), rightReading: \(rightReading?.confidence ?? -1)")
 
         guard let combinedEyeReading = combine(left: leftReading, right: rightReading) else {
             reportNoFace()
@@ -142,12 +137,12 @@ private extension GazeDetector {
 
 // MARK: - Stage 3
 private extension GazeDetector {
-    func imagePoint(from region: VNFaceLandmarkRegion2D, faceBox: CGRect) -> [CGPoint] {
+    func imagePoint(from region: VNFaceLandmarkRegion2D, faceBox: CGRect, aspectCorrection: CGFloat) -> [CGPoint] {
         region.normalizedPoints.map { point in
-            CGPoint(
-                x: faceBox.origin.x + point.x * faceBox.width,
-                y: faceBox.origin.y + point.y * faceBox.height
-            )
+            let x = faceBox.origin.x + point.x * faceBox.width
+            let y = faceBox.origin.y + point.y * faceBox.height
+
+            return CGPoint(x: x, y: y * aspectCorrection)
         }
     }
 
@@ -162,7 +157,7 @@ private extension GazeDetector {
                 let dy = eyePoints[i].y - eyePoints[j].y
                 let distSq = dx * dx + dy * dy
                 if distSq > best.2 {
-                    best = (eyePoints[1], eyePoints[j], distSq)
+                    best = (eyePoints[i], eyePoints[j], distSq)
                 }
             }
         }
@@ -186,12 +181,13 @@ private extension GazeDetector {
     func eyeReading(
         pupil: VNFaceLandmarkRegion2D,
         eyeContour: VNFaceLandmarkRegion2D,
-        faceBox: CGRect
+        faceBox: CGRect,
+        aspectCorrection: CGFloat
     ) -> EyeReading? {
 
-        let eyePoints = imagePoint(from: eyeContour, faceBox: faceBox)
-        let pupilPoints = imagePoint(from: pupil, faceBox: faceBox)
-        
+        let eyePoints = imagePoint(from: eyeContour, faceBox: faceBox, aspectCorrection: aspectCorrection)
+        let pupilPoints = imagePoint(from: pupil, faceBox: faceBox, aspectCorrection: aspectCorrection)
+
         print("eyePoints.count: \(eyePoints.count), pupilPoints.count: \(pupilPoints.count)")
 
         guard !pupilPoints.isEmpty else {
@@ -204,7 +200,7 @@ private extension GazeDetector {
             return nil
         }
         
-        print("cornerA: \(cornerA), cornerB: \(cornerB)")
+//        print("cornerA: \(cornerA), cornerB: \(cornerB)")
 
         let pupilCenter = CGPoint(
             x: pupilPoints.map(\.x).reduce(0, +) / CGFloat(pupilPoints.count),
@@ -267,7 +263,7 @@ private extension GazeDetector {
     /// inconsistent sign conventions purely by iteration-order accident.
     func canonicalAxis(cornerA: CGPoint, cornerB: CGPoint) -> CGPoint {
         let raw = CGPoint(x: cornerB.x - cornerA.x, y: cornerB.y - cornerA.y)
-        return raw.x > 0 ? raw : CGPoint(x: -raw.x, y: -raw.y)
+        return raw.x >= 0 ? raw : CGPoint(x: -raw.x, y: -raw.y)
     }
 }
 
@@ -330,8 +326,8 @@ private extension GazeDetector {
         let eyeHorizontalDegrees = eyeReading.horizontalOffset * assumedMaxEyeRotationDegrees
         let eyeVerticalDegrees = eyeReading.verticalOffset * assumedMaxEyeRotationDegrees
 
-        let horizontalAngle = yawDegrees * eyeHorizontalDegrees
-        let verticalAngle = pitchDegrees * eyeVerticalDegrees
+        let horizontalAngle = yawDegrees + eyeHorizontalDegrees
+        let verticalAngle = pitchDegrees + eyeVerticalDegrees
 
         var confidence = eyeReading.confidence
         if pose.yaw == nil { confidence *= 0.85 }
@@ -354,6 +350,24 @@ private extension GazeDetector {
         let callback = onObservation
         Task { @MainActor [weak self] in
             callback?(observation)
+        }
+    }
+}
+
+private extension GazeDetector {
+    /// Vision's normalized coordinates are relative to the image *after*
+    /// applying `orientation` — a 90° rotation (.left/.right) swaps which
+    /// of the buffer's raw dimensions is "width" vs "height" from Vision's
+    /// point of view. Get this wrong and the aspect correction below makes
+    /// things worse, not better.
+    func effectiveImageDimensions(pixelBuffer: CVPixelBuffer) -> (width: CGFloat, height: CGFloat) {
+        let rawWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
+        let rawHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+        switch orientation {
+        case .left, .right, .leftMirrored, .rightMirrored:
+            return (rawHeight, rawWidth)
+        default:
+            return (rawWidth, rawHeight)
         }
     }
 }

@@ -12,7 +12,7 @@ final class GazeBoundaryEvaluator {
     /// as "exceeded" — without this, an estimate landing exactly on the
     /// edge pixel would flicker in/out on tiny noise, the same problem
     /// Stage 7's hysteresis solved for zone classification.
-    private let margin: CGFloat = 24
+    private let margin: CGFloat = 40
     
     init(calibration: GazeScreenCalibration) {
         self.calibration = calibration

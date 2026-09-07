@@ -45,6 +45,7 @@ final class CalibrationCoordinator {
     private func moveToCurrentTarget() {
         guard currentIndex < targets.count else {
             state = .finished
+            print("sample angles: \(collectedReadings.map { ($0.horizontalAngle, $0.verticalAngle) }.suffix(3))")
             onFinished?(session.finish())
             return
         }

@@ -5,7 +5,7 @@ import UIKit
 import AVFoundation
 import SwiftUI
 
-class ViewController: UIViewController, @MainActor AVCaptureVideoDataOutputSampleBufferDelegate {
+class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
     private var permissionGranted = false
     
     private let captureSession = AVCaptureSession()
@@ -13,16 +13,15 @@ class ViewController: UIViewController, @MainActor AVCaptureVideoDataOutputSampl
     private let sessionQueue = DispatchQueue(label: "sessionQueue")
     
     private var previewLayer = AVCaptureVideoPreviewLayer()
-    var screenRect: CGRect! = nil
     
     /// Detector
     nonisolated(unsafe) private var videoOutput = AVCaptureVideoDataOutput()
     nonisolated(unsafe) private let gazeDetector = GazeDetector()
-    nonisolated(unsafe) private var boundaryEvaluator: GazeBoundaryEvaluator?
-    nonisolated(unsafe) private let calibrationCoordinator = CalibrationCoordinator()
-    nonisolated(unsafe) private var calibrationTargetView: CalibrationTargetView?
-    nonisolated(unsafe) private var isCalibrating = false
-    
+    private var boundaryEvaluator: GazeBoundaryEvaluator?
+    private let calibrationCoordinator = CalibrationCoordinator()
+    private var calibrationTargetView: CalibrationTargetView?
+    private var isCalibrating = false
+
     private var hasAppeared = false
     private var isSessionRunning = false
     
@@ -50,6 +49,11 @@ class ViewController: UIViewController, @MainActor AVCaptureVideoDataOutputSampl
         super.viewDidAppear(animated)
         hasAppeared = true
         attemptStartCalibrationIfReady()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        previewLayer.frame = view.bounds
     }
 
     private func cameraSessionDidStart() {
@@ -80,7 +84,8 @@ class ViewController: UIViewController, @MainActor AVCaptureVideoDataOutputSampl
             self.sessionQueue.resume()
         }
     }
-    
+
+    @MainActor
     func setUpCaptureSession() {
         guard let videoDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else { return }
         guard let videoDeviceInput = try? AVCaptureDeviceInput(device: videoDevice) else { return }
@@ -88,10 +93,7 @@ class ViewController: UIViewController, @MainActor AVCaptureVideoDataOutputSampl
         guard captureSession.canAddInput(videoDeviceInput) else { return }
         captureSession.addInput(videoDeviceInput)
         
-        screenRect = UIScreen.main.bounds
-        
         previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-        previewLayer.frame = CGRect(x: 0, y: 0, width: screenRect.size.width, height: screenRect.size.height)
         previewLayer.videoGravity = AVLayerVideoGravity.resizeAspectFill
         
         previewLayer.connection?.videoRotationAngle = 0
@@ -104,6 +106,7 @@ class ViewController: UIViewController, @MainActor AVCaptureVideoDataOutputSampl
         
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            self.previewLayer.frame = self.view.bounds
             self.view.layer.addSublayer(self.previewLayer)
         }
     }
@@ -124,10 +127,10 @@ class ViewController: UIViewController, @MainActor AVCaptureVideoDataOutputSampl
             guard let evaluator = boundaryEvaluator else { return }  // calibration not run yet
             
             switch evaluator.evaluate(reading, viewBounds: view.bounds) {
-            case .withinBounds:
-                print("🚀 Face Found and eye contact enabled")
-            case .exceeded(_, let direction):
-                print("No Eye Contact")
+            case .withinBounds(let point):
+                print("🔥 within bounds — point: \(point), confidence: \(reading.confidence)")
+            case .exceeded(let point, let direction):
+                print("❌ exceeded (\(direction)) — point: \(point), confidence: \(reading.confidence)")
             }
         case .noFace:
             print("No Face")
@@ -163,11 +166,14 @@ private extension ViewController {
             self?.calibrationTargetView?.removeFromSuperview()
             self?.calibrationTargetView = nil
             self?.isCalibrating = false
-            guard let calibration else {
-                // surface a retry option to the user here
-                return
-            }
-            self?.boundaryEvaluator = GazeBoundaryEvaluator(calibration: calibration)
+            guard let calibration, let self else { return }
+
+            let evaluator = GazeBoundaryEvaluator(calibration: calibration)
+            self.boundaryEvaluator = evaluator
+
+            let centerEstimate = calibration.estimatedScreenPoint(horizontalAngle: 0, verticalAngle: 0)
+            let actualCenter = CGPoint(x: self.view.bounds.midX, y: self.view.bounds.midY)
+            print("Calibration center estimate: \(centerEstimate), actual center: \(actualCenter)")
         }
 
         isCalibrating = true
