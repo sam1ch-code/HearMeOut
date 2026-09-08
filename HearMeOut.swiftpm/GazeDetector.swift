@@ -29,6 +29,7 @@ final class GazeDetector {
     private let orientation: CGImagePropertyOrientation = .right
 
     private let minUsableConfidence: Double = 0.15
+    private let calibration = GazeCalibrationParameters()
 
     /// Assumed comfortable range of eye rotation within the socket, used only
     /// to convert Stage 4's unitless -1...1 offset into degrees so it can be
@@ -323,8 +324,8 @@ private extension GazeDetector {
         let yawDegrees = (pose.yaw ?? 0) * 180 / .pi
         let pitchDegrees = (pose.pitch ?? 0) * 180 / .pi
 
-        let eyeHorizontalDegrees = eyeReading.horizontalOffset * assumedMaxEyeRotationDegrees
-        let eyeVerticalDegrees = eyeReading.verticalOffset * assumedMaxEyeRotationDegrees
+        let eyeHorizontalDegrees = eyeReading.horizontalOffset * calibration.eyeHorizontalScale
+        let eyeVerticalDegrees = eyeReading.verticalOffset * calibration.eyeVerticalScale
 
         let horizontalAngle = yawDegrees + eyeHorizontalDegrees
         let verticalAngle = pitchDegrees + eyeVerticalDegrees

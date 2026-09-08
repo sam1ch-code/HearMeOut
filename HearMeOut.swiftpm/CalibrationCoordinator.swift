@@ -103,12 +103,23 @@ final class CalibrationCoordinator {
         guard !collectedReadings.isEmpty else { return }
         let reading = GazeReading(
             gaze: .center, // unused for calibration fitting
-            horizontalAngle: collectedReadings.map(\.horizontalAngle).reduce(0, +) / CGFloat(collectedReadings.count),
-            verticalAngle: collectedReadings.map(\.verticalAngle).reduce(0, +) / CGFloat(collectedReadings.count),
+            horizontalAngle: median(collectedReadings.map(\.horizontalAngle)),
+            verticalAngle: median(collectedReadings.map(\.verticalAngle)),
             confidence: collectedReadings.map(\.confidence).reduce(0, +) / Double(collectedReadings.count),
             timeSinceCentered: nil,
             timestamp: 0
         )
         session.recordSample(at: targets[pointIndex], reading: reading)
+    }
+
+    func median(_ values: [CGFloat]) -> CGFloat {
+        let sorted = values.sorted()
+        let middle = sorted.count / 2
+
+        if sorted.count.isMultiple(of: 2) {
+            return (sorted[middle - 1] + sorted[middle]) / 2
+        }
+
+        return sorted[middle]
     }
 }
