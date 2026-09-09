@@ -5,6 +5,10 @@ import Foundation
 
 final class CalibrationSession {
     private var samples: [CalibrationSample] = []
+
+    func reset() {
+        samples.removeAll(keepingCapacity: true)
+    }
     
     /// Call once per target point, feeding it the latest GazeReading
     /// while the user is looking at `targetPoint`. Ignores low-confidence

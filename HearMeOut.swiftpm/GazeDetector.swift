@@ -189,17 +189,9 @@ private extension GazeDetector {
         let eyePoints = imagePoint(from: eyeContour, faceBox: faceBox, aspectCorrection: aspectCorrection)
         let pupilPoints = imagePoint(from: pupil, faceBox: faceBox, aspectCorrection: aspectCorrection)
 
-        print("eyePoints.count: \(eyePoints.count), pupilPoints.count: \(pupilPoints.count)")
-
-        guard !pupilPoints.isEmpty else {
-            print("FAILED: pupilPoints empty")
-            return nil
-        }
+        guard !pupilPoints.isEmpty else { return nil }
         
-        guard let (cornerA, cornerB) = corners(of: eyePoints) else {
-            print("FAILED: corners returned nil")
-            return nil
-        }
+        guard let (cornerA, cornerB) = corners(of: eyePoints) else { return nil }
         
 //        print("cornerA: \(cornerA), cornerB: \(cornerB)")
 
@@ -218,10 +210,7 @@ private extension GazeDetector {
         let perpendicular = CGPoint(x: -axis.y, y: axis.x) // rotate 90°
 
         let halfAxisLength = sqrt(pow(cornerB.x - cornerA.x, 2) + pow(cornerB.y - cornerA.y, 2)) / 2
-        guard halfAxisLength > 0 else {
-            print("FAILED: halfAxisLength is 0 — corners are identical or overlapping")
-            return nil
-        }
+        guard halfAxisLength > 0 else { return nil }
 
         let offset = CGPoint(
             x: pupilCenter.x - eyeCenter.x,
@@ -349,7 +338,7 @@ private extension GazeDetector {
         /// this hop lands on the main actor before `callback` runs — unlike DispatchQueue.main.async,
         /// which is only a runtime convention as far as the type system is concerned.
         let callback = onObservation
-        Task { @MainActor [weak self] in
+        Task { @MainActor in
             callback?(observation)
         }
     }

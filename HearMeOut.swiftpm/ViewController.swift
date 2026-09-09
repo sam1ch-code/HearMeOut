@@ -6,13 +6,12 @@ import AVFoundation
 import SwiftUI
 
 class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
-    private var permissionGranted = false
+    nonisolated(unsafe) private var permissionGranted = false
     
-    private let captureSession = AVCaptureSession()
-    // TODO: Add qos
+    nonisolated(unsafe) private let captureSession = AVCaptureSession()
     private let sessionQueue = DispatchQueue(label: "sessionQueue")
     
-    private var previewLayer = AVCaptureVideoPreviewLayer()
+    nonisolated(unsafe) private var previewLayer = AVCaptureVideoPreviewLayer()
     
     /// Detector
     nonisolated(unsafe) private var videoOutput = AVCaptureVideoDataOutput()
@@ -24,12 +23,17 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 
     private var hasAppeared = false
     private var isSessionRunning = false
+    private var tutorialView: CalibrationTutorialView?
+    private var feedbackView: EyeContactFeedbackView?
+
+    private let liveConfidenceThreshold = 0.6
     
     override func viewDidLoad() {
         super.viewDidLoad()
         gazeDetector.onObservation = { [weak self] observation in
             self?.handleGazeObservation(observation)
         }
+        installFeedbackUI()
         checkPermission()
         
         sessionQueue.async { [unowned self] in
@@ -48,7 +52,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         hasAppeared = true
-        attemptStartCalibrationIfReady()
+        showCalibrationTutorialIfReady()
     }
 
     override func viewDidLayoutSubviews() {
@@ -58,12 +62,19 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
 
     private func cameraSessionDidStart() {
         isSessionRunning = true
-        attemptStartCalibrationIfReady()
+        showCalibrationTutorialIfReady()
     }
 
-    private func attemptStartCalibrationIfReady() {
-        guard hasAppeared, isSessionRunning, !isCalibrating, boundaryEvaluator == nil else { return }
-        startCalibration()
+    private func showCalibrationTutorialIfReady() {
+        guard hasAppeared, isSessionRunning, !isCalibrating, boundaryEvaluator == nil, tutorialView == nil else { return }
+
+        let tutorial = CalibrationTutorialView(frame: view.bounds)
+        tutorial.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        tutorial.onStartTapped = { [weak self] in
+            self?.startCalibration()
+        }
+        view.addSubview(tutorial)
+        tutorialView = tutorial
     }
     
     nonisolated func checkPermission() {
@@ -85,8 +96,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         }
     }
 
-    @MainActor
-    func setUpCaptureSession() {
+    nonisolated func setUpCaptureSession() {
         guard let videoDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else { return }
         guard let videoDeviceInput = try? AVCaptureDeviceInput(device: videoDevice) else { return }
         
@@ -107,7 +117,9 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.previewLayer.frame = self.view.bounds
-            self.view.layer.addSublayer(self.previewLayer)
+            // Keep the camera behind UIKit overlays (tutorial, target dot,
+            // and eye-contact border), even if the session starts late.
+            self.view.layer.insertSublayer(self.previewLayer, at: 0)
         }
     }
     
@@ -120,26 +132,59 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         switch observation {
         case .detected(let reading):
             if isCalibrating {
+                feedbackView?.setState(.calibrating)
                 calibrationCoordinator.handle(reading, timestamp: reading.timestamp)
                 return
             }
             
             guard let evaluator = boundaryEvaluator else { return }  // calibration not run yet
+            guard reading.confidence >= liveConfidenceThreshold else {
+                feedbackView?.setState(.lowConfidence)
+                return
+            }
             
             switch evaluator.evaluate(reading, viewBounds: view.bounds) {
-            case .withinBounds(let point):
-                print("🔥 within bounds — point: \(point), confidence: \(reading.confidence)")
-            case .exceeded(let point, let direction):
-                print("❌ exceeded (\(direction)) — point: \(point), confidence: \(reading.confidence)")
+            case .withinBounds:
+                feedbackView?.setState(.eyeContact)
+            case .exceeded:
+                feedbackView?.setState(.lookingAway)
             }
         case .noFace:
-            print("No Face")
+            feedbackView?.setState(.noFace)
+            if isCalibrating {
+                calibrationCoordinator.faceLost()
+            }
         }
     }
 }
     
 private extension ViewController {
+    func installFeedbackUI() {
+        let feedback = EyeContactFeedbackView(frame: view.bounds)
+        feedback.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        feedback.onRecalibrateTapped = { [weak self] in
+            self?.presentCalibrationTutorial()
+        }
+        view.addSubview(feedback)
+        feedbackView = feedback
+    }
+
+    func presentCalibrationTutorial() {
+        guard !isCalibrating, tutorialView == nil else { return }
+        let tutorial = CalibrationTutorialView(frame: view.bounds)
+        tutorial.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        tutorial.onStartTapped = { [weak self] in
+            self?.startCalibration()
+        }
+        view.addSubview(tutorial)
+        tutorialView = tutorial
+    }
+
     func startCalibration() {
+        guard !isCalibrating else { return }
+        tutorialView?.removeFromSuperview()
+        tutorialView = nil
+
         let inset: CGFloat = 60
         let bounds = view.bounds.insetBy(dx: inset, dy: inset)
         // Four corners for the actual fit, plus a center point held back
@@ -153,8 +198,11 @@ private extension ViewController {
         ]
 
         let targetView = CalibrationTargetView(frame: view.bounds)
+        targetView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(targetView)
         calibrationTargetView = targetView
+
+        feedbackView?.setState(.calibrating)
 
         calibrationCoordinator.onTargetChanged = { [weak self] point in
             self?.calibrationTargetView?.move(to: point, animated: true)
@@ -162,18 +210,23 @@ private extension ViewController {
         calibrationCoordinator.onCollectingChanged = { [weak self] collecting in
             self?.calibrationTargetView?.setCollecting(collecting)
         }
-        calibrationCoordinator.onFinished = { [weak self] calibration in
-            self?.calibrationTargetView?.removeFromSuperview()
-            self?.calibrationTargetView = nil
-            self?.isCalibrating = false
-            guard let calibration, let self else { return }
+        calibrationCoordinator.onFinished = { [weak self] result in
+            guard let self else { return }
+            self.calibrationTargetView?.removeFromSuperview()
+            self.calibrationTargetView = nil
+            self.isCalibrating = false
 
-            let evaluator = GazeBoundaryEvaluator(calibration: calibration)
-            self.boundaryEvaluator = evaluator
-
-            let centerEstimate = calibration.estimatedScreenPoint(horizontalAngle: 0, verticalAngle: 0)
-            let actualCenter = CGPoint(x: self.view.bounds.midX, y: self.view.bounds.midY)
-            print("Calibration center estimate: \(centerEstimate), actual center: \(actualCenter)")
+            switch result {
+            case .success(let calibration):
+                self.boundaryEvaluator = GazeBoundaryEvaluator(calibration: calibration)
+                self.feedbackView?.setState(.eyeContact)
+            case .timedOut:
+                self.feedbackView?.setState(.calibrationFailed("Calibration timed out\nKeep your face in frame and try again."))
+                self.presentCalibrationTutorial()
+            case .insufficientData:
+                self.feedbackView?.setState(.calibrationFailed("Calibration needs clearer readings\nTry again in brighter light."))
+                self.presentCalibrationTutorial()
+            }
         }
 
         isCalibrating = true

@@ -5,6 +5,12 @@ import CoreGraphics
 
 final class CalibrationCoordinator {
 
+    enum Result {
+        case success(GazeScreenCalibration)
+        case timedOut
+        case insufficientData
+    }
+
     enum State: Equatable {
         case idle
         case awaitingStability(pointIndex: Int)
@@ -34,9 +40,10 @@ final class CalibrationCoordinator {
 
     var onTargetChanged: ((CGPoint) -> Void)?
     var onCollectingChanged: ((Bool) -> Void)?
-    var onFinished: ((GazeScreenCalibration?) -> Void)?
+    var onFinished: ((Result) -> Void)?
 
     func begin(targets: [CGPoint]) {
+        session.reset()
         self.targets = targets
         currentIndex = 0
         moveToCurrentTarget()
@@ -45,8 +52,11 @@ final class CalibrationCoordinator {
     private func moveToCurrentTarget() {
         guard currentIndex < targets.count else {
             state = .finished
-            print("sample angles: \(collectedReadings.map { ($0.horizontalAngle, $0.verticalAngle) }.suffix(3))")
-            onFinished?(session.finish())
+            if let calibration = session.finish() {
+                onFinished?(.success(calibration))
+            } else {
+                onFinished?(.insufficientData)
+            }
             return
         }
         state = .awaitingStability(pointIndex: currentIndex)
@@ -63,7 +73,7 @@ final class CalibrationCoordinator {
         if pointStartTime == nil { pointStartTime = timestamp }
         if let pointStart = pointStartTime, timestamp - pointStart > perPointTimeout {
             state = .failed
-            onFinished?(nil)
+            onFinished?(.timedOut)
             return
         }
 
@@ -92,9 +102,18 @@ final class CalibrationCoordinator {
     /// unreliable, so restart its settle phase rather than quietly
     /// averaging across a dropout.
     func faceLost() {
-        guard case .collecting(let index) = state else { return }
+        switch state {
+        case .awaitingStability(let index), .collecting(let index):
+            resetCurrentPoint(index: index)
+        case .idle, .finished, .failed:
+            return
+        }
+    }
+
+    private func resetCurrentPoint(index: Int) {
         state = .awaitingStability(pointIndex: index)
         phaseStartTime = nil
+        pointStartTime = nil
         collectedReadings = []
         onCollectingChanged?(false)
     }
