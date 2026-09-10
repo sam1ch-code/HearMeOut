@@ -9,11 +9,10 @@ import SwiftUI
 
 struct ButtonView: View {
     let model: ButtonModel
-    let action: () -> Void
+    let onTap: () -> Void
 
     var body: some View {
-
-        Button(action: action) {
+        Button(action: onTap) {
             HStack(spacing: 18) {
                 Image(systemName: model.iconSystemName)
                     .font(.system(size: 30, weight: .semibold))
@@ -53,6 +52,3 @@ struct ButtonView: View {
     }
 }
 
-#Preview {
-    ButtonView(model: .init(title: "title", subtitle: "subtitle", backgroundColor: .red, iconSystemName: "heart.fill"), action: {print()})
-}

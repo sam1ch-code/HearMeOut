@@ -11,8 +11,8 @@ struct RouterViewModfier: ViewModifier {
             switch route {
             case .home:
                 VStack{}
-            case .tutorial(let string):
-                VStack{}
+            case .tutorial(let type):
+                TutorialView(type: type)
             case .interviewMode:
                 ContentView()
             case .readingMode:

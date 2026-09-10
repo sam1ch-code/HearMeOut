@@ -6,8 +6,6 @@ import Combine
 
 protocol HomeViewModelProtocol: ObservableObject {
     var state: HomeState { get }
-
-    func handleIntent(_ intent: HandleIntent)
 }
 
 final class HomeViewModel: HomeViewModelProtocol {
@@ -16,25 +14,21 @@ final class HomeViewModel: HomeViewModelProtocol {
     init(state: HomeState) {
         self.state = state
     }
-
-    func handleIntent(_ intent: HandleIntent) {
-        switch intent {
-        case .navigateToInterviewFlow:
-            print("someThing 2")
-        case .navigateToReadingFlow:
-            print("someThing")
-        }
-    }
 }
 
 struct HomeState: Equatable {
-    let buttons: [ButtonModel] = [
-        ButtonModel(title: "Interview Mode", subtitle: "Rehearse your next conversation", backgroundColor: .green, iconSystemName: "person.2.fill"),
-        ButtonModel(title: "Reading Mode", subtitle: "Read aloud at your own pace", backgroundColor: .yellow, iconSystemName: "book.closed.fill")
-    ]
-}
+    enum HomeAction: ActionType, Equatable {
+        case interview
+        case reading
+    }
 
-enum HandleIntent: Equatable {
-    case navigateToInterviewFlow
-    case navigateToReadingFlow
+    let buttons: [ActionButton<HomeAction>] = [
+        ActionButton(
+            model: ButtonModel(id: UUID().uuidString, title: "Interview Mode", subtitle: "Rehearse your next conversation", backgroundColor: .green, iconSystemName: "person.2.fill"),
+            action: HomeAction.interview
+        ),
+        ActionButton(
+            model: ButtonModel(id: UUID().uuidString, title: "Reading Mode", subtitle: "Read aloud at your own pace", backgroundColor: .yellow, iconSystemName: "book.closed.fill"),
+            action: HomeAction.reading)
+    ]
 }

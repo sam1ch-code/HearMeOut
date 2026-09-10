@@ -3,7 +3,7 @@ import Observation
 
 enum AppRoute: Hashable {
     case home
-    case tutorial(String)
+    case tutorial(TutorialType)
     case interviewMode
     case readingMode
     case result(String)
@@ -13,8 +13,8 @@ enum AppRoute: Hashable {
 final class Router {
     var path = NavigationPath()
 
-    func navigateToTutorial(_ id: String) {
-        path.append(AppRoute.tutorial(id))
+    func navigateToTutorial(_ type: TutorialType) {
+        path.append(AppRoute.tutorial(type))
     }
 
     func navigateToInterviewMode() {
@@ -23,6 +23,15 @@ final class Router {
 
     func navigateToReadingMode() {
         path.append(AppRoute.readingMode)
+    }
+
+    func completeTutorial(_ type: TutorialType) {
+        switch type {
+        case .readingTutorial:
+            path.append(AppRoute.readingMode)
+        case .interviewTutorial:
+            path.append(AppRoute.interviewMode)
+        }
     }
 
     func navigateToResult(score: String) {
@@ -34,4 +43,7 @@ final class Router {
     }
 }
 
-
+enum TutorialType: Hashable {
+    case readingTutorial
+    case interviewTutorial
+}

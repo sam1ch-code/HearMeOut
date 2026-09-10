@@ -34,7 +34,7 @@ struct HomeView<ViewModel: HomeViewModelProtocol>: View {
 
                 VStack(spacing: 16) {
                     ForEach(viewModel.state.buttons) { button in
-                        buttonView(model: button)
+                        buttonView(button: button)
                     }
                 }
 
@@ -76,9 +76,14 @@ private extension HomeView {
         }
     }
 
-    private func buttonView(model: ButtonModel) -> some View {
-        ButtonView(model: model) {
-            
+    private func buttonView(button: ActionButton<HomeState.HomeAction>) -> some View {
+        ButtonView(model: button.model) {
+            switch button.action {
+            case .interview:
+                router.navigateToTutorial(.interviewTutorial)
+            case .reading:
+                router.navigateToTutorial(.readingTutorial)
+            }
         }
     }
 
