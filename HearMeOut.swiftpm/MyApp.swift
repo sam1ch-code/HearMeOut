@@ -4,7 +4,8 @@ import SwiftUI
 struct MyApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            HomeView<HomeViewModel>(viewModel: HomeViewModel(state: HomeState()))
+                .withRouter()
         }
     }
 }
