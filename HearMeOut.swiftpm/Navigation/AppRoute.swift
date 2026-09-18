@@ -1,12 +1,14 @@
 import SwiftUI
 import Observation
 
-enum AppRoute: Hashable {
+enum AppRoute: Hashable, Identifiable {
     case home
     case tutorial(TutorialType)
     case interviewMode
     case readingMode
     case result(String)
+
+    var id: Self { self }
 }
 
 @Observable

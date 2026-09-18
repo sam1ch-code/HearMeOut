@@ -16,7 +16,7 @@ struct RouterViewModfier: ViewModifier {
             case .interviewMode:
                 ContentView()
             case .readingMode:
-                VStack{}
+                TranscriberView()
             case .result(let string):
                 VStack{}
             }
